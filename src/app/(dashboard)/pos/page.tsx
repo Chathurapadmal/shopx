@@ -81,7 +81,7 @@ export default function POSPage() {
             .map((p: Product) => p.category)
             .filter((category: string | null | undefined): category is string => Boolean(category)),
           ...categorySnap.docs
-            .map((doc) => doc.data().name)
+            .map((doc: { data: () => { name?: string } }) => doc.data().name)
             .filter((category: string | null | undefined): category is string => Boolean(category)),
         ])
       ).sort((a, b) => a.localeCompare(b));

@@ -35,16 +35,19 @@ export default function ProductForm({ initial, onSubmit, loading }: ProductFormP
   const loadCategories = async () => {
     try {
       const snap = await getDocs(query(collection(db, "categories"), orderBy("name")));
-      const loaded = snap.docs.map((doc) => ({
+      const loaded: Category[] = snap.docs.map((doc: { id: string; data: () => Omit<Category, "id"> }) => ({
         id: doc.id,
         ...(doc.data() as Omit<Category, "id">),
       }));
 
-      if (initialCategory && !loaded.some((category) => category.name === initialCategory)) {
+      if (
+        initialCategory &&
+        !loaded.some((category: Category) => category.name === initialCategory)
+      ) {
         loaded.push({ id: `local-${initialCategory}`, name: initialCategory });
       }
 
-      loaded.sort((a, b) => a.name.localeCompare(b.name));
+      loaded.sort((a: Category, b: Category) => a.name.localeCompare(b.name));
       setCategories(loaded);
     } catch (err) {
       console.error("Failed to load categories", err);
@@ -58,7 +61,7 @@ export default function ProductForm({ initial, onSubmit, loading }: ProductFormP
     if (!trimmed) return;
 
     const existing = categories.find(
-      (category) => category.name.toLowerCase() === trimmed.toLowerCase()
+      (category: Category) => category.name.toLowerCase() === trimmed.toLowerCase()
     );
 
     if (existing) {
@@ -80,7 +83,9 @@ export default function ProductForm({ initial, onSubmit, loading }: ProductFormP
         name: trimmed,
       };
 
-      setCategories((prev) => [...prev, createdCategory].sort((a, b) => a.name.localeCompare(b.name)));
+      setCategories((prev) =>
+        [...prev, createdCategory].sort((a: Category, b: Category) => a.name.localeCompare(b.name))
+      );
       setForm((prev) => ({ ...prev, category: trimmed }));
       setNewCategory("");
       toast.success("Category added");
