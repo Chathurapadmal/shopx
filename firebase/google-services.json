@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "538924467456",
+    "firebase_url": "https://stuplann-default-rtdb.firebaseio.com",
+    "project_id": "stuplann",
+    "storage_bucket": "stuplann.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:538924467456:android:76ba1443a2711f95fd1fe5",
+        "android_client_info": {
+          "package_name": "com.example.student_managemenet_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQpr6iQNAa8GVeszs3TGIcfJhiAZKFshc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:538924467456:android:d0ae971eb3c7fd8afd1fe5",
+        "android_client_info": {
+          "package_name": "com.example.studentpln"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQpr6iQNAa8GVeszs3TGIcfJhiAZKFshc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
