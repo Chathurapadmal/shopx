@@ -1,8 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../../../firebase/client";
 import ProductForm from "@/components/ProductForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -13,10 +11,16 @@ export default function NewProductPage() {
 
   const handleSubmit = async (data: any) => {
     try {
-      await addDoc(collection(db, "products"), {
-        ...data,
-        createdAt: serverTimestamp(),
+      const response = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to add product");
+      }
+
       toast.success("Product added successfully");
       router.push("/products");
     } catch (err) {

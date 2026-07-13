@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
-import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from "firebase/firestore";
-import { db } from "../../firebase/client";
 import { Category, Product } from "@/lib/types";
 import toast from "react-hot-toast";
 
@@ -34,20 +32,24 @@ export default function ProductForm({ initial, onSubmit, loading }: ProductFormP
 
   const loadCategories = async () => {
     try {
-      const snap = await getDocs(query(collection(db, "categories"), orderBy("name")));
-      const loaded: Category[] = snap.docs.map((doc: { id: string; data: () => Omit<Category, "id"> }) => ({
-        id: doc.id,
-        ...(doc.data() as Omit<Category, "id">),
+      const response = await fetch("/api/categories");
+      if (!response.ok) {
+        throw new Error("Failed to load categories");
+      }
+
+      const data = (await response.json()) as Category[];
+      const loaded: Category[] = data.map((category) => ({
+        id: category.id,
+        name: category.name,
+        color: category.color,
+        createdAt: category.createdAt,
       }));
 
-      if (
-        initialCategory &&
-        !loaded.some((category: Category) => category.name === initialCategory)
-      ) {
+      if (initialCategory && !loaded.some((category) => category.name === initialCategory)) {
         loaded.push({ id: `local-${initialCategory}`, name: initialCategory });
       }
 
-      loaded.sort((a: Category, b: Category) => a.name.localeCompare(b.name));
+      loaded.sort((a, b) => a.name.localeCompare(b.name));
       setCategories(loaded);
     } catch (err) {
       console.error("Failed to load categories", err);
@@ -61,7 +63,7 @@ export default function ProductForm({ initial, onSubmit, loading }: ProductFormP
     if (!trimmed) return;
 
     const existing = categories.find(
-      (category: Category) => category.name.toLowerCase() === trimmed.toLowerCase()
+      (category) => category.name.toLowerCase() === trimmed.toLowerCase()
     );
 
     if (existing) {
@@ -73,18 +75,23 @@ export default function ProductForm({ initial, onSubmit, loading }: ProductFormP
 
     try {
       setCategorySaving(true);
-      const docRef = await addDoc(collection(db, "categories"), {
-        name: trimmed,
-        createdAt: serverTimestamp(),
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
       });
 
+      if (!response.ok) {
+        throw new Error("Failed to add category");
+      }
+
       const createdCategory: Category = {
-        id: docRef.id,
+        id: `${Date.now()}`,
         name: trimmed,
       };
 
       setCategories((prev) =>
-        [...prev, createdCategory].sort((a: Category, b: Category) => a.name.localeCompare(b.name))
+        [...prev, createdCategory].sort((a, b) => a.name.localeCompare(b.name))
       );
       setForm((prev) => ({ ...prev, category: trimmed }));
       setNewCategory("");

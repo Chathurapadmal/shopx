@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { collection, query, orderBy, getDocs, doc, deleteDoc } from "firebase/firestore";
-import { db } from "../../../../firebase/client";
 import { Product } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { Plus, Edit, Trash2, Search, Package } from "lucide-react";
@@ -20,12 +18,9 @@ export default function ProductsPage() {
 
   const loadProducts = async () => {
     try {
-      const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      const list = snap.docs.map((d: { id: string; data: () => Omit<Product, "id"> }) => ({
-        id: d.id,
-        ...d.data(),
-      } as Product));
+      const response = await fetch("/api/products");
+      if (!response.ok) throw new Error("Failed to load products");
+      const list = await response.json();
       setProducts(list);
     } catch (err) {
       console.error("Failed to load products", err);
@@ -37,7 +32,8 @@ export default function ProductsPage() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return;
     try {
-      await deleteDoc(doc(db, "products", id));
+      const response = await fetch(`/api/products/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Failed to delete product");
       setProducts(products.filter((p) => p.id !== id));
       toast.success("Product deleted");
     } catch (err) {

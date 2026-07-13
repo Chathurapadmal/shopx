@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../../../firebase/client";
 import { Product } from "@/lib/types";
 import ProductForm from "@/components/ProductForm";
 import { ArrowLeft } from "lucide-react";
@@ -22,10 +20,10 @@ export default function EditProductPage() {
 
   const loadProduct = async () => {
     try {
-      const snap = await getDoc(doc(db, "products", id));
-      if (snap.exists()) {
-        setProduct({ id: snap.id, ...snap.data() } as Product);
-      }
+      const response = await fetch(`/api/products/${id}`);
+      if (!response.ok) throw new Error("Failed to load product");
+      const data = await response.json();
+      setProduct(data);
     } catch (err) {
       toast.error("Failed to load product");
     } finally {
@@ -35,10 +33,12 @@ export default function EditProductPage() {
 
   const handleSubmit = async (data: any) => {
     try {
-      await updateDoc(doc(db, "products", id), {
-        ...data,
-        updatedAt: serverTimestamp(),
+      const response = await fetch(`/api/products/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error("Failed to update product");
       toast.success("Product updated");
       router.push("/products");
     } catch (err) {
