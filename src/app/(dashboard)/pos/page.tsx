@@ -1,17 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import {
-  collection,
-  query,
-  orderBy,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "../../../../firebase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Product, CartItem, Customer } from "@/lib/types";
 import { formatCurrency, generateReceiptNumber } from "@/lib/utils";
@@ -40,6 +29,7 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -53,6 +43,7 @@ export default function POSPage() {
   const [processing, setProcessing] = useState(false);
   const receiptRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const dragCategoryRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadProducts();
@@ -63,29 +54,33 @@ export default function POSPage() {
     if (searchRef.current) searchRef.current.focus();
   }, []);
 
+  useEffect(() => {
+    if (categories.length > 0 && categoryOrder.length === 0) {
+      setCategoryOrder(categories);
+    }
+  }, [categories]);
+
   const loadProducts = async () => {
     try {
-      const [productSnap, categorySnap] = await Promise.all([
-        getDocs(query(collection(db, "products"), orderBy("name"))),
-        getDocs(query(collection(db, "categories"), orderBy("name"))),
+      const [productRes, categoryRes] = await Promise.all([
+        fetch("/api/products"),
+        fetch("/api/categories"),
       ]);
 
-      const list = productSnap.docs.map((d: { id: string; data: () => Omit<Product, "id"> }) => ({
-        id: d.id,
-        ...d.data(),
-      } as Product));
+      const list: Product[] = productRes.ok ? await productRes.json() : [];
+      const categoryData: { name: string }[] = categoryRes.ok ? await categoryRes.json() : [];
+
       setProducts(list);
       const cats = Array.from(
         new Set<string>([
           ...list
             .map((p: Product) => p.category)
             .filter((category: string | null | undefined): category is string => Boolean(category)),
-          ...categorySnap.docs
-            .map((doc: { data: () => { name?: string } }) => doc.data().name)
-            .filter((category: string | null | undefined): category is string => Boolean(category)),
+          ...categoryData.map((c) => c.name),
         ])
       ).sort((a, b) => a.localeCompare(b));
       setCategories(cats);
+      setCategoryOrder(cats);
     } catch (err) {
       console.error("Failed to load products", err);
     }
@@ -93,13 +88,11 @@ export default function POSPage() {
 
   const loadCustomers = async () => {
     try {
-      const q = query(collection(db, "customers"), orderBy("name"));
-      const snap = await getDocs(q);
-      const list = snap.docs.map((d: { id: string; data: () => Omit<Customer, "id"> }) => ({
-        id: d.id,
-        ...d.data(),
-      } as Customer));
-      setCustomers(list);
+      const res = await fetch("/api/customers");
+      if (res.ok) {
+        const list = await res.json();
+        setCustomers(list);
+      }
     } catch (err) {
       console.error("Failed to load customers", err);
     }
@@ -198,32 +191,21 @@ export default function POSPage() {
         cashierId: user?.uid || "",
         cashierName: user?.email || "",
         receiptNumber,
-        createdAt: serverTimestamp(),
       };
 
-      const docRef = await addDoc(collection(db, "sales"), saleData);
+      const res = await fetch("/api/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saleData),
+      });
 
-      for (const item of cart) {
-        const productRef = doc(db, "products", item.productId);
-        const product = products.find((p) => p.id === item.productId);
-        if (product) {
-          await updateDoc(productRef, {
-            stock: product.stock - item.quantity,
-          });
-        }
-      }
+      if (!res.ok) throw new Error("Checkout failed");
 
-      if (selectedCustomer) {
-        const points = Math.floor(total / 10);
-        const custRef = doc(db, "customers", selectedCustomer.id);
-        await updateDoc(custRef, {
-          loyaltyPoints: (selectedCustomer.loyaltyPoints || 0) + points,
-        });
-      }
+      const { id } = await res.json();
 
       setLastSale({
         ...saleData,
-        id: docRef.id,
+        id,
         items: cart,
         subtotal,
         tax,
@@ -305,8 +287,8 @@ export default function POSPage() {
   }
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-3rem)]">
-      <div className="flex-1 flex flex-col">
+    <div className="flex gap-4 flex-1 min-h-0 min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0">
         <div className="flex gap-2 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -321,24 +303,37 @@ export default function POSPage() {
           </div>
         </div>
 
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-2 mb-3 pb-1">
           <button
             onClick={() => setActiveCategory("All")}
-            className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition ${
+            className={`px-8 py-3 rounded-xl text-base font-semibold whitespace-nowrap transition ${
               activeCategory === "All"
-                ? "bg-emerald-600 text-white"
+                ? "bg-emerald-600 text-white shadow-md"
                 : "bg-slate-200 text-slate-600 hover:bg-slate-300"
             }`}
           >
             All
           </button>
-          {categories.map((cat) => (
+          {categoryOrder.map((cat, idx) => (
             <button
               key={cat}
+              draggable
+              onDragStart={() => (dragCategoryRef.current = idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => {
+                const from = dragCategoryRef.current;
+                if (from === null || from === idx) return;
+                setCategoryOrder((prev) => {
+                  const next = [...prev];
+                  const [moved] = next.splice(from, 1);
+                  next.splice(idx, 0, moved);
+                  return next;
+                });
+              }}
               onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition ${
+              className={`px-8 py-3 rounded-xl text-base font-semibold whitespace-nowrap transition cursor-grab active:cursor-grabbing ${
                 activeCategory === cat
-                  ? "bg-emerald-600 text-white"
+                  ? "bg-emerald-600 text-white shadow-md"
                   : "bg-slate-200 text-slate-600 hover:bg-slate-300"
               }`}
             >
@@ -348,21 +343,21 @@ export default function POSPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-5 gap-1">
             {filteredProducts.map((product) => (
               <button
                 key={product.id}
                 onClick={() => addToCart(product)}
                 disabled={product.stock <= 0}
-                className="bg-white rounded-xl border border-slate-200 p-3 text-left hover:border-emerald-400 hover:shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-white rounded-lg border border-slate-200 text-left hover:border-emerald-400 hover:shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed aspect-square flex flex-col items-center justify-center p-1"
               >
-                <div className="text-sm font-semibold text-slate-800 truncate">
+                <div className="text-[10px] font-semibold text-slate-600 truncate text-center leading-tight">
                   {product.name}
                 </div>
-                <div className="text-lg font-bold text-emerald-600 mt-1">
+                <div className="text-xs font-bold text-emerald-500 mt-0.5">
                   {formatCurrency(product.price)}
                 </div>
-                <div className="text-xs text-slate-400 mt-1">
+                <div className="text-[9px] text-slate-400 mt-0.5">
                   Stock: {product.stock}
                 </div>
               </button>
@@ -371,7 +366,7 @@ export default function POSPage() {
         </div>
       </div>
 
-      <div className="w-96 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
+      <div className="w-96 min-w-0 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
         <div className="p-4 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-slate-800">Cart ({cart.length})</h2>

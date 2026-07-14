@@ -1,16 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  collection,
-  query,
-  orderBy,
-  getDocs,
-  limit,
-  startAfter,
-  Timestamp,
-} from "firebase/firestore";
-import { db } from "../../../../firebase/client";
 import { Sale } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Search, Receipt, Eye } from "lucide-react";
@@ -32,24 +22,13 @@ export default function SalesPage() {
 
   const loadSales = async (loadMore = false) => {
     try {
-      let q = query(
-        collection(db, "sales"),
-        orderBy("createdAt", "desc"),
-        limit(PAGE_SIZE)
-      );
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
       if (loadMore && lastDoc) {
-        q = query(
-          collection(db, "sales"),
-          orderBy("createdAt", "desc"),
-          startAfter(lastDoc),
-          limit(PAGE_SIZE)
-        );
+        params.set("startAfter", lastDoc);
       }
-      const snap = await getDocs(q);
-      const list = snap.docs.map((d: { id: string; data: () => Omit<Sale, "id"> }) => ({
-        id: d.id,
-        ...d.data(),
-      } as Sale));
+      const res = await fetch(`/api/sales?${params}`);
+      if (!res.ok) throw new Error("Failed to load sales");
+      const list = await res.json();
 
       if (loadMore) {
         setSales((prev) => [...prev, ...list]);
@@ -57,8 +36,8 @@ export default function SalesPage() {
         setSales(list);
       }
 
-      setLastDoc(snap.docs[snap.docs.length - 1]);
-      setHasMore(snap.docs.length === PAGE_SIZE);
+      setLastDoc(list.length > 0 ? list[list.length - 1].id : null);
+      setHasMore(list.length === PAGE_SIZE);
     } catch (err) {
       toast.error("Failed to load sales");
     } finally {

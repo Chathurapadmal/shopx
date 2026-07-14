@@ -1,8 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../../../firebase/client";
 import CustomerForm from "@/components/CustomerForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -13,11 +11,12 @@ export default function NewCustomerPage() {
 
   const handleSubmit = async (data: any) => {
     try {
-      await addDoc(collection(db, "customers"), {
-        ...data,
-        loyaltyPoints: 0,
-        createdAt: serverTimestamp(),
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
+      if (!res.ok) throw new Error("Failed to add customer");
       toast.success("Customer added successfully");
       router.push("/customers");
     } catch (err) {

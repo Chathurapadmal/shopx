@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { DollarSign, ShoppingBag, Users, TrendingUp, Package } from "lucide-react";
-import { collection, query, orderBy, limit, getDocs } from "firebase/firestore";
-import { db } from "../../../../firebase/client";
 import KpiCard from "@/components/KpiCard";
 import { formatCurrency } from "@/lib/utils";
 import {
@@ -39,31 +37,25 @@ export default function DashboardPage() {
 
   const loadStats = async () => {
     try {
+      const [statsRes, salesRes] = await Promise.all([
+        fetch("/api/stats"),
+        fetch("/api/sales?limit=200"),
+      ]);
+
+      const statsData = statsRes.ok ? await statsRes.json() : {};
+      const allSales = salesRes.ok ? await salesRes.json() : [];
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const salesSnap = await getDocs(collection(db, "sales"));
-      const productsSnap = await getDocs(collection(db, "products"));
-      const customersSnap = await getDocs(collection(db, "customers"));
-
-      const totalProducts = productsSnap.size;
-      const totalCustomers = customersSnap.size;
-      let todaySales = 0;
-      let totalOrders = 0;
       const salesByDate: Record<string, number> = {};
       const salesByCategory: Record<string, number> = {};
 
-      salesSnap.forEach((doc: { data: () => any }) => {
-        const sale = doc.data();
-        const date = sale.createdAt?.toDate?.() || new Date(sale.createdAt);
+      allSales.forEach((sale: any) => {
+        const date = new Date(sale.createdAt);
         const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
         salesByDate[dateStr] = (salesByDate[dateStr] || 0) + sale.total;
-
-        if (date >= today) {
-          todaySales += sale.total;
-        }
-        totalOrders++;
 
         sale.items?.forEach((item: any) => {
           salesByCategory[item.name] = (salesByCategory[item.name] || 0) + item.subtotal;
@@ -80,10 +72,10 @@ export default function DashboardPage() {
         .slice(0, 5);
 
       setStats({
-        todaySales,
-        totalOrders,
-        totalCustomers,
-        totalProducts,
+        todaySales: statsData.todaySales || 0,
+        totalOrders: statsData.totalOrders || 0,
+        totalCustomers: statsData.totalCustomers || 0,
+        totalProducts: statsData.totalProducts || 0,
         salesData,
         categoryData,
       });

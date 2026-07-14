@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { collection, query, orderBy, getDocs, doc, deleteDoc } from "firebase/firestore";
-import { db } from "../../../../firebase/client";
 import { Customer } from "@/lib/types";
 import { Plus, Edit, Trash2, Search, Users } from "lucide-react";
 import toast from "react-hot-toast";
@@ -19,12 +17,9 @@ export default function CustomersPage() {
 
   const loadCustomers = async () => {
     try {
-      const q = query(collection(db, "customers"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      const list = snap.docs.map((d: { id: string; data: () => Omit<Customer, "id"> }) => ({
-        id: d.id,
-        ...d.data(),
-      } as Customer));
+      const res = await fetch("/api/customers");
+      if (!res.ok) throw new Error("Failed to load customers");
+      const list = await res.json();
       setCustomers(list);
     } catch (err) {
       console.error("Failed to load customers", err);
@@ -36,7 +31,8 @@ export default function CustomersPage() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete customer "${name}"?`)) return;
     try {
-      await deleteDoc(doc(db, "customers", id));
+      const res = await fetch(`/api/customers/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete customer");
       setCustomers(customers.filter((c) => c.id !== id));
       toast.success("Customer deleted");
     } catch (err) {

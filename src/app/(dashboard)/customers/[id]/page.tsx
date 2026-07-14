@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../../../../../firebase/client";
 import { Customer } from "@/lib/types";
 import CustomerForm from "@/components/CustomerForm";
 import { ArrowLeft } from "lucide-react";
@@ -22,10 +20,10 @@ export default function EditCustomerPage() {
 
   const loadCustomer = async () => {
     try {
-      const snap = await getDoc(doc(db, "customers", id));
-      if (snap.exists()) {
-        setCustomer({ id: snap.id, ...snap.data() } as Customer);
-      }
+      const res = await fetch(`/api/customers/${id}`);
+      if (!res.ok) throw new Error("Failed to load customer");
+      const data = await res.json();
+      setCustomer(data);
     } catch (err) {
       toast.error("Failed to load customer");
     } finally {
@@ -35,10 +33,12 @@ export default function EditCustomerPage() {
 
   const handleSubmit = async (data: any) => {
     try {
-      await updateDoc(doc(db, "customers", id), {
-        ...data,
-        updatedAt: serverTimestamp(),
+      const res = await fetch(`/api/customers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
+      if (!res.ok) throw new Error("Failed to update customer");
       toast.success("Customer updated");
       router.push("/customers");
     } catch (err) {
