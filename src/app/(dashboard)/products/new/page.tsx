@@ -5,15 +5,17 @@ import ProductForm from "@/components/ProductForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function NewProductPage() {
   const router = useRouter();
+  const { getToken } = useAuth();
 
   const handleSubmit = async (data: any) => {
     try {
       const response = await fetch("/api/products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify(data),
       });
 

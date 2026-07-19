@@ -1,12 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { query, mapRows } from "@/lib/oracle";
+import { getAuthUser } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const user = getAuthUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role === "cashier") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
+    const shopFilter = user.role !== "super_admin" ? " WHERE shop_id = :1" : "";
+    const shopParams = user.role !== "super_admin" ? [user.shopId] : [];
+
     const [salesResult, productsResult, customersResult] = await Promise.all([
-      query("SELECT total, created_at FROM sales"),
-      query("SELECT COUNT(*) AS count FROM plu"),
-      query("SELECT COUNT(*) AS count FROM vip"),
+      query("SELECT total, created_at FROM sales" + shopFilter, shopParams),
+      query("SELECT COUNT(*) AS count FROM plu" + shopFilter, shopParams),
+      query("SELECT COUNT(*) AS count FROM vip" + shopFilter, shopParams),
     ]);
 
     let totalRevenue = 0;
@@ -31,11 +39,7 @@ export async function GET() {
     const totalCustomers = customersRow.count || 0;
 
     return NextResponse.json({
-      totalRevenue,
-      totalOrders,
-      totalProducts,
-      totalCustomers,
-      todaySales,
+      totalRevenue, totalOrders, totalProducts, totalCustomers, todaySales,
     });
   } catch (err) {
     console.error("Stats GET error:", err);

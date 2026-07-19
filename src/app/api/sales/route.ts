@@ -1,18 +1,32 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import oracledb from "oracledb";
 import { query, execute, generateId, mapRows, getConnection } from "@/lib/oracle";
+import { getAuthUser } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const user = getAuthUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role === "cashier") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
     const conn = await getConnection();
-    const result = await conn.execute(
-      "SELECT * FROM sales ORDER BY created_at DESC",
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT, fetchInfo: { ITEMS_JSON: { type: oracledb.STRING } } }
-    );
+    let sql = "SELECT * FROM sales";
+    const params: any[] = [];
+
+    if (user.role !== "super_admin") {
+      sql += " WHERE shop_id = :1";
+      params.push(user.shopId);
+    }
+    sql += " ORDER BY created_at DESC";
+
+    const result = await conn.execute(sql, params, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+      fetchInfo: { ITEMS_JSON: { type: oracledb.STRING } },
+    });
     await conn.close();
+
     const sales = mapRows(result.rows).map((sale: any) => {
-      let items = [];
+      let items: any[] = [];
       if (sale.items_json) {
         try { items = JSON.parse(sale.items_json); } catch {}
       }
@@ -25,28 +39,23 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const user = getAuthUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const body = await req.json();
     const id = generateId();
+    const now = new Date().toISOString();
 
     await execute(
-      `INSERT INTO sales (id, receipt_number, items_json, subtotal, tax, discount, total, payment_method, customer_id, customer_name, cashier_id, cashier_name, created_at)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13)`,
+      `INSERT INTO sales (id, receipt_number, items_json, subtotal, tax, discount, total, payment_method, customer_id, customer_name, cashier_id, cashier_name, created_at, shop_id)
+       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14)`,
       [
-        id,
-        body.receiptNumber,
-        JSON.stringify(body.items),
-        body.subtotal,
-        body.tax || 0,
-        body.discount || 0,
-        body.total,
-        body.paymentMethod,
-        body.customerId || null,
-        body.customerName || null,
-        body.cashierId || null,
-        body.cashierName || null,
-        new Date().toISOString(),
+        id, body.receiptNumber, JSON.stringify(body.items), body.subtotal,
+        body.tax || 0, body.discount || 0, body.total, body.paymentMethod,
+        body.customerId || null, body.customerName || null,
+        user.userId, user.name, now, user.shopId,
       ]
     );
 

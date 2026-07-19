@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { DollarSign, ShoppingBag, Users, TrendingUp, Package } from "lucide-react";
 import KpiCard from "@/components/KpiCard";
 import { formatCurrency } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   BarChart,
   Bar,
@@ -21,6 +22,7 @@ import {
 const COLORS = ["#059669", "#3b82f6", "#8b5cf6", "#f59e0b", "#ef4444"];
 
 export default function DashboardPage() {
+  const { getToken } = useAuth();
   const [stats, setStats] = useState({
     todaySales: 0,
     totalOrders: 0,
@@ -37,9 +39,10 @@ export default function DashboardPage() {
 
   const loadStats = async () => {
     try {
+      const headers = { Authorization: `Bearer ${getToken()}` };
       const [statsRes, salesRes] = await Promise.all([
-        fetch("/api/stats"),
-        fetch("/api/sales?limit=200"),
+        fetch("/api/stats", { headers }),
+        fetch("/api/sales?limit=200", { headers }),
       ]);
 
       const statsData = statsRes.ok ? await statsRes.json() : {};

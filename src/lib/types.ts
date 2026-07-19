@@ -8,6 +8,8 @@ export interface Product {
   category: string;
   description: string;
   createdAt: Date;
+  modifiedBy?: string;
+  modifiedAt?: string;
 }
 
 export interface Customer {
@@ -18,6 +20,7 @@ export interface Customer {
   address: string;
   loyaltyPoints: number;
   createdAt: Date;
+  addedBy?: string;
 }
 
 export interface CartItem {
@@ -49,4 +52,26 @@ export interface Category {
   name: string;
   color?: string;
   createdAt?: Date;
+}
+
+export interface Shop {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface StaffUser {
+  id: string;
+  email: string;
+  name: string;
+  role: "shop_admin" | "cashier";
+  shopId: string;
+  emailVerified: boolean;
+  twofaEnabled: boolean;
+  isActive: boolean;
+  createdAt: string;
 }

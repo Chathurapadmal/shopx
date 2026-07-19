@@ -1,20 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sale } from "@/lib/types";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { Search, Receipt, Eye } from "lucide-react";
+import ReceiptComponent from "@/components/Receipt";
+import { Search, Receipt, Eye, Printer } from "lucide-react";
 import toast from "react-hot-toast";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import { useAuth } from "@/contexts/AuthContext";
 
 const PAGE_SIZE = 20;
 
 export default function SalesPage() {
+  const { getToken } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
+  const receiptRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadSales();
@@ -26,7 +32,7 @@ export default function SalesPage() {
       if (loadMore && lastDoc) {
         params.set("startAfter", lastDoc);
       }
-      const res = await fetch(`/api/sales?${params}`);
+      const res = await fetch(`/api/sales?${params}`, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) throw new Error("Failed to load sales");
       const list = await res.json();
 
@@ -45,11 +51,27 @@ export default function SalesPage() {
     }
   };
 
+  const printReceipt = async () => {
+    if (!receiptRef.current) return;
+    try {
+      const canvas = await html2canvas(receiptRef.current);
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({ unit: "mm", format: [80, canvas.height * 0.26] });
+      pdf.addImage(imgData, "PNG", 0, 0, 80, canvas.height * 0.26);
+      pdf.save(`receipt-${selectedSale?.receiptNumber || "print"}.pdf`);
+      toast.success("Receipt downloaded");
+    } catch (err) {
+      toast.error("Failed to generate receipt");
+    }
+  };
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const filtered = sales.filter(
     (s) =>
-      s.receiptNumber?.toLowerCase().includes(search.toLowerCase()) ||
-      s.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-      s.paymentMethod?.toLowerCase().includes(search.toLowerCase())
+      new Date(s.createdAt) >= sevenDaysAgo &&
+      (s.receiptNumber?.toLowerCase().includes(search.toLowerCase()) ||
+        s.customerName?.toLowerCase().includes(search.toLowerCase()) ||
+        s.paymentMethod?.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -180,64 +202,27 @@ export default function SalesPage() {
               </button>
             </div>
 
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-slate-500">Receipt:</span>
-                  <p className="font-mono font-medium">{selectedSale.receiptNumber}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500">Date:</span>
-                  <p>{formatDate(selectedSale.createdAt)}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500">Customer:</span>
-                  <p>{selectedSale.customerName || "Walk-in"}</p>
-                </div>
-                <div>
-                  <span className="text-slate-500">Payment:</span>
-                  <p className="capitalize">{selectedSale.paymentMethod}</p>
-                </div>
-              </div>
-
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-y border-slate-200">
-                    <th className="text-left py-2">Item</th>
-                    <th className="text-center py-2">Qty</th>
-                    <th className="text-right py-2">Price</th>
-                    <th className="text-right py-2">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedSale.items?.map((item, i) => (
-                    <tr key={i} className="border-b border-slate-100">
-                      <td className="py-2">{item.name}</td>
-                      <td className="text-center py-2">{item.quantity}</td>
-                      <td className="text-right py-2">{formatCurrency(item.price)}</td>
-                      <td className="text-right py-2">{formatCurrency(item.subtotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div className="space-y-1 pt-2 border-t border-slate-200">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Subtotal</span>
-                  <span>{formatCurrency(selectedSale.subtotal)}</span>
-                </div>
-                {selectedSale.discount > 0 && (
-                  <div className="flex justify-between text-red-500">
-                    <span>Discount</span>
-                    <span>-{formatCurrency(selectedSale.discount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-lg font-bold">
-                  <span>Total</span>
-                  <span>{formatCurrency(selectedSale.total)}</span>
-                </div>
-              </div>
+            <div ref={receiptRef}>
+              <ReceiptComponent
+                items={selectedSale.items}
+                subtotal={selectedSale.subtotal}
+                tax={selectedSale.tax}
+                discount={selectedSale.discount}
+                total={selectedSale.total}
+                paymentMethod={selectedSale.paymentMethod}
+                receiptNumber={selectedSale.receiptNumber}
+                customerName={selectedSale.customerName}
+                date={selectedSale.createdAt?.toString()}
+              />
             </div>
+
+            <button
+              onClick={printReceipt}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition"
+            >
+              <Printer className="h-5 w-5" />
+              Download Receipt
+            </button>
           </div>
         </div>
       )}

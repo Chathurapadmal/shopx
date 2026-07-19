@@ -7,12 +7,16 @@ import ProductForm from "@/components/ProductForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function EditProductPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { getToken } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const authHeaders = { Authorization: `Bearer ${getToken()}` };
 
   useEffect(() => {
     loadProduct();
@@ -20,7 +24,7 @@ export default function EditProductPage() {
 
   const loadProduct = async () => {
     try {
-      const response = await fetch(`/api/products/${id}`);
+      const response = await fetch(`/api/products/${id}`, { headers: authHeaders });
       if (!response.ok) throw new Error("Failed to load product");
       const data = await response.json();
       setProduct(data);
@@ -35,7 +39,7 @@ export default function EditProductPage() {
     try {
       const response = await fetch(`/api/products/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify(data),
       });
       if (!response.ok) throw new Error("Failed to update product");

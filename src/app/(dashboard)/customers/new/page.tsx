@@ -5,15 +5,17 @@ import CustomerForm from "@/components/CustomerForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function NewCustomerPage() {
   const router = useRouter();
+  const { getToken } = useAuth();
 
   const handleSubmit = async (data: any) => {
     try {
       const res = await fetch("/api/customers", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error("Failed to add customer");

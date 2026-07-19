@@ -1,0 +1,3 @@
+-- Seed super admin (password will be hashed via Node.js script)
+-- The hash below is for "chathura@1234" with bcrypt cost 12
+-- We'll run this from Node.js for proper hashing

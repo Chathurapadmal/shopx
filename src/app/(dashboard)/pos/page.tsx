@@ -25,7 +25,7 @@ import jsPDF from "jspdf";
 const TAX_RATE = 0;
 
 export default function POSPage() {
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -62,9 +62,10 @@ export default function POSPage() {
 
   const loadProducts = async () => {
     try {
+      const authHeaders = { Authorization: `Bearer ${getToken()}` };
       const [productRes, categoryRes] = await Promise.all([
-        fetch("/api/products"),
-        fetch("/api/categories"),
+        fetch("/api/products", { headers: authHeaders }),
+        fetch("/api/categories", { headers: authHeaders }),
       ]);
 
       const list: Product[] = productRes.ok ? await productRes.json() : [];
@@ -88,7 +89,7 @@ export default function POSPage() {
 
   const loadCustomers = async () => {
     try {
-      const res = await fetch("/api/customers");
+      const res = await fetch("/api/customers", { headers: { Authorization: `Bearer ${getToken()}` } });
       if (res.ok) {
         const list = await res.json();
         setCustomers(list);
@@ -107,6 +108,22 @@ export default function POSPage() {
       activeCategory === "All" || p.category === activeCategory;
     return matchesSearch && matchesCategory;
   });
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+    const match = products.find(
+      (p) => p.barcode?.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (match) {
+      if (match.stock <= 0) {
+        toast.error("Out of stock");
+        setSearchQuery("");
+        return;
+      }
+      addToCart(match);
+    }
+  }, [searchQuery, products]);
 
   const addToCart = (product: Product) => {
     if (product.stock <= 0) {
@@ -188,14 +205,14 @@ export default function POSPage() {
         paymentMethod,
         customerId: selectedCustomer?.id || "",
         customerName: selectedCustomer?.name || "",
-        cashierId: user?.uid || "",
-        cashierName: user?.email || "",
+        cashierId: user?.id || "",
+        cashierName: user?.name || user?.email || "",
         receiptNumber,
       };
 
       const res = await fetch("/api/sales", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify(saleData),
       });
 
@@ -343,22 +360,22 @@ export default function POSPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-5 gap-1">
+          <div className="grid grid-cols-6 gap-1.5">
             {filteredProducts.map((product) => (
               <button
                 key={product.id}
                 onClick={() => addToCart(product)}
                 disabled={product.stock <= 0}
-                className="bg-white rounded-lg border border-slate-200 text-left hover:border-emerald-400 hover:shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed aspect-square flex flex-col items-center justify-center p-1"
+                className="bg-white rounded-lg border border-slate-200 hover:border-emerald-400 hover:shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center justify-center p-1 min-h-[72px]"
               >
-                <div className="text-[10px] font-semibold text-slate-600 truncate text-center leading-tight">
+                <div className="text-[15px] font-semibold text-slate-600 truncate text-center leading-tight w-full px-0.5">
                   {product.name}
                 </div>
-                <div className="text-xs font-bold text-emerald-500 mt-0.5">
+                <div className="text-[10px] font-bold text-emerald-500 mt-0.5">
                   {formatCurrency(product.price)}
                 </div>
-                <div className="text-[9px] text-slate-400 mt-0.5">
-                  Stock: {product.stock}
+                <div className="text-[8px] text-slate-400 mt-0.5">
+                  {product.stock}
                 </div>
               </button>
             ))}

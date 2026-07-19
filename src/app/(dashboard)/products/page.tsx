@@ -6,8 +6,10 @@ import { Product } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 import { Plus, Edit, Trash2, Search, Package } from "lucide-react";
 import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function ProductsPage() {
+  const { getToken, user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -16,9 +18,11 @@ export default function ProductsPage() {
     loadProducts();
   }, []);
 
+  const headers = () => ({ Authorization: `Bearer ${getToken()}` });
+
   const loadProducts = async () => {
     try {
-      const response = await fetch("/api/products");
+      const response = await fetch("/api/products", { headers: headers() });
       if (!response.ok) throw new Error("Failed to load products");
       const list = await response.json();
       setProducts(list);
@@ -32,7 +36,7 @@ export default function ProductsPage() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete "${name}"?`)) return;
     try {
-      const response = await fetch(`/api/products/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/products/${id}`, { method: "DELETE", headers: headers() });
       if (!response.ok) throw new Error("Failed to delete product");
       setProducts(products.filter((p) => p.id !== id));
       toast.success("Product deleted");

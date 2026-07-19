@@ -5,11 +5,15 @@ import Link from "next/link";
 import { Customer } from "@/lib/types";
 import { Plus, Edit, Trash2, Search, Users } from "lucide-react";
 import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function CustomersPage() {
+  const { getToken, user } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+
+  const authHeaders = { Authorization: `Bearer ${getToken()}` };
 
   useEffect(() => {
     loadCustomers();
@@ -17,7 +21,7 @@ export default function CustomersPage() {
 
   const loadCustomers = async () => {
     try {
-      const res = await fetch("/api/customers");
+      const res = await fetch("/api/customers", { headers: authHeaders });
       if (!res.ok) throw new Error("Failed to load customers");
       const list = await res.json();
       setCustomers(list);
@@ -31,7 +35,7 @@ export default function CustomersPage() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete customer "${name}"?`)) return;
     try {
-      const res = await fetch(`/api/customers/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/customers/${id}`, { method: "DELETE", headers: authHeaders });
       if (!res.ok) throw new Error("Failed to delete customer");
       setCustomers(customers.filter((c) => c.id !== id));
       toast.success("Customer deleted");

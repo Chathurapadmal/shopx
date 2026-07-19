@@ -1,166 +1,128 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import {
-  User,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-} from "firebase/auth";
-import { auth } from "../../firebase/client";
+import { useRouter } from "next/navigation";
 
 type AppUser = {
-  uid: string;
+  id: string;
   email: string;
+  name: string;
+  role: "super_admin" | "shop_admin" | "cashier";
+  shopId: string | null;
 };
+
+type LoginResponse = {
+  token: string;
+  user: AppUser;
+};
+
+type LoginStep = "credentials" | "2fa";
 
 interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  verify2FA: (userId: string, token: string) => Promise<void>;
+  setup2FA: (token?: string) => Promise<{ secret?: string; otpauthUrl?: string } | { success: boolean }>;
+  logout: () => void;
+  loginStep: LoginStep;
+  pendingUserId: string | null;
+  getToken: () => string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-type LocalAccount = {
-  uid: string;
-  email: string;
-  password: string;
-};
+const TOKEN_KEY = "shopx_token";
+const USER_KEY = "shopx_user";
 
-const ACCOUNTS_KEY = "shopx_local_accounts";
-const SESSION_KEY = "shopx_local_session";
-
-function readLocalAccounts(): LocalAccount[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    return JSON.parse(window.localStorage.getItem(ACCOUNTS_KEY) || "[]") as LocalAccount[];
-  } catch {
-    return [];
-  }
+function storeSession(token: string, user: AppUser) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
-function writeLocalAccounts(accounts: LocalAccount[]) {
-  window.localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-}
-
-function readLocalSession(): AppUser | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    return JSON.parse(window.localStorage.getItem(SESSION_KEY) || "null") as AppUser | null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLocalSession(user: AppUser | null) {
-  if (user) {
-    window.localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  } else {
-    window.localStorage.removeItem(SESSION_KEY);
-  }
-}
-
-function isAuthConfigError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /CONFIGURATION_NOT_FOUND|configuration not found|invalid-api-key|auth\/configuration-not-found|API key/i.test(message);
-}
-
-function toAppUser(uid: string, email: string): AppUser {
-  return { uid, email };
+function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AppUser | null>(() => readLocalSession());
+  const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loginStep, setLoginStep] = useState<LoginStep>("credentials");
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: User | null) => {
-      setUser(firebaseUser ? toAppUser(firebaseUser.uid, firebaseUser.email || "") : readLocalSession());
-      setLoading(false);
-    });
-    return unsubscribe;
+    try {
+      const stored = localStorage.getItem(USER_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as AppUser;
+        setUser(parsed);
+      }
+    } catch {}
+    setLoading(false);
   }, []);
 
+  const getToken = () => localStorage.getItem(TOKEN_KEY);
+
   const login = async (email: string, password: string) => {
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      if (!isAuthConfigError(error)) {
-        throw error;
-      }
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
 
-      const account = readLocalAccounts().find((entry) => entry.email.toLowerCase() === email.toLowerCase());
-      if (!account || account.password !== password) {
-        throw new Error("Firebase Auth is not configured and no local account exists for this email.");
-      }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Login failed");
 
-      const localUser = toAppUser(account.uid, account.email);
-      writeLocalSession(localUser);
-      setUser(localUser);
-    }
-  };
-
-  const register = async (email: string, password: string) => {
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-
-    if (!apiKey) {
-      throw new Error("Missing Firebase API key");
-    }
-
-    const response = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          returnSecureToken: true,
-        }),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      if (!isAuthConfigError(data?.error?.message)) {
-        throw new Error(data?.error?.message || "Registration failed");
-      }
-    }
-
-    if (response.ok) {
-      await signInWithEmailAndPassword(auth, email, password);
+    if (data.require2fa) {
+      setLoginStep("2fa");
+      setPendingUserId(data.userId);
       return;
     }
 
-    const accounts = readLocalAccounts();
-    const existing = accounts.find((entry) => entry.email.toLowerCase() === email.toLowerCase());
-    const localUser = existing ? toAppUser(existing.uid, existing.email) : toAppUser(`local_${Date.now()}`, email);
-    const nextAccounts = existing
-      ? accounts.map((entry) => (entry.email.toLowerCase() === email.toLowerCase() ? { ...entry, password } : entry))
-      : [...accounts, { uid: localUser.uid, email, password }];
-
-    writeLocalAccounts(nextAccounts);
-    writeLocalSession(localUser);
-    setUser(localUser);
+    storeSession(data.token, data.user);
+    setUser(data.user);
   };
 
-  const logout = async () => {
-    try {
-      await signOut(auth);
-    } finally {
-      writeLocalSession(null);
-      setUser(null);
-    }
+  const verify2FA = async (userId: string, token: string) => {
+    const res = await fetch("/api/auth/verify-2fa", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, token }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Verification failed");
+
+    storeSession(data.token, data.user);
+    setUser(data.user);
+    setLoginStep("credentials");
+    setPendingUserId(null);
+  };
+
+  const setup2FA = async (token?: string) => {
+    const storedToken = getToken();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (storedToken) headers["Authorization"] = `Bearer ${storedToken}`;
+
+    const res = await fetch("/api/auth/setup-2fa", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(token ? { token } : {}),
+    });
+
+    return res.json();
+  };
+
+  const logout = () => {
+    clearSession();
+    setUser(null);
+    router.push("/");
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, verify2FA, setup2FA, logout, loginStep, pendingUserId, getToken }}>
       {children}
     </AuthContext.Provider>
   );

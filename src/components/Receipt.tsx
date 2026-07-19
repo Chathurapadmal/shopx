@@ -13,6 +13,7 @@ interface ReceiptProps {
   paymentMethod: string;
   receiptNumber: string;
   customerName?: string;
+  date?: string;
 }
 
 export default function Receipt({
@@ -24,6 +25,7 @@ export default function Receipt({
   paymentMethod,
   receiptNumber,
   customerName,
+  date,
 }: ReceiptProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
 
@@ -37,7 +39,7 @@ export default function Receipt({
 
       <div className="text-xs text-slate-500 mb-3">
         <p>Receipt: {receiptNumber}</p>
-        <p>Date: {new Date().toLocaleString()}</p>
+        <p>Date: {date ? new Date(date).toLocaleString() : new Date().toLocaleString()}</p>
         {customerName && <p>Customer: {customerName}</p>}
       </div>
 

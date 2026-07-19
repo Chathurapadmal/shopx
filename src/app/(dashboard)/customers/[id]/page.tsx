@@ -7,12 +7,16 @@ import CustomerForm from "@/components/CustomerForm";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import toast from "react-hot-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function EditCustomerPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { getToken } = useAuth();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const authHeaders = { Authorization: `Bearer ${getToken()}` };
 
   useEffect(() => {
     loadCustomer();
@@ -20,7 +24,7 @@ export default function EditCustomerPage() {
 
   const loadCustomer = async () => {
     try {
-      const res = await fetch(`/api/customers/${id}`);
+      const res = await fetch(`/api/customers/${id}`, { headers: authHeaders });
       if (!res.ok) throw new Error("Failed to load customer");
       const data = await res.json();
       setCustomer(data);
@@ -35,7 +39,7 @@ export default function EditCustomerPage() {
     try {
       const res = await fetch(`/api/customers/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error("Failed to update customer");
