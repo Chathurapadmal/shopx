@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execute, query } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { Shop } from "@/lib/entities/Shop";
 import { getAuthUser } from "@/lib/auth";
-import { generateId } from "@/lib/oracle";
 
 export async function GET(req: NextRequest) {
   const user = getAuthUser(req);
@@ -10,16 +10,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await query("SELECT id, name, email, phone, address, is_active, created_at FROM shops ORDER BY created_at DESC");
-    return NextResponse.json(result.rows?.map((r: any) => ({
-      id: r.ID,
-      name: r.NAME,
-      email: r.EMAIL,
-      phone: r.PHONE,
-      address: r.ADDRESS,
-      isActive: r.IS_ACTIVE === 1,
-      createdAt: r.CREATED_AT,
-    })) || []);
+    const ds = await getDataSource();
+    const shopRepo = ds.getRepository(Shop);
+
+    const shops = await shopRepo.find({ order: { createdAt: "DESC" } });
+
+    const result = shops.map((s) => ({
+      id: s.id,
+      name: s.name,
+      email: s.email,
+      phone: s.phone,
+      address: s.address,
+      isActive: s.isActive === 1,
+      createdAt: s.createdAt,
+    }));
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Shops error:", error);
     return NextResponse.json({ error: "Failed to fetch shops" }, { status: 500 });
@@ -38,13 +44,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Shop name is required" }, { status: 400 });
     }
 
-    const id = generateId();
-    const now = new Date().toISOString();
-    await execute(
-      "INSERT INTO shops (id, name, email, phone, address, is_active, created_at, updated_at) VALUES (:1, :2, :3, :4, :5, 1, :6, :6)",
-      [id, name, email || null, phone || null, address || null, now]
-    );
+    const ds = await getDataSource();
+    const shopRepo = ds.getRepository(Shop);
 
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
+    const now = new Date().toISOString();
+
+    const shop = shopRepo.create({
+      id,
+      name,
+      email: email || null,
+      phone: phone || null,
+      address: address || null,
+      isActive: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await shopRepo.save(shop);
     return NextResponse.json({ id }, { status: 201 });
   } catch (error) {
     console.error("Create shop error:", error);

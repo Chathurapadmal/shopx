@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execute, query } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { User } from "@/lib/entities/User";
 import { hashPassword } from "@/lib/auth";
 import { sendPasswordResetEmail } from "@/lib/email";
 import crypto from "crypto";
@@ -8,27 +9,44 @@ export async function POST(req: NextRequest) {
   try {
     const { email, token, newPassword } = await req.json();
 
+    const ds = await getDataSource();
+    const userRepo = ds.getRepository(User);
+
     if (email && !token) {
-      const result = await query("SELECT id FROM users WHERE email = :1", [email.toLowerCase()]);
-      const row = result.rows?.[0];
-      if (!row) {
+      const user = await userRepo.findOne({ where: { email: email.toLowerCase() } });
+      if (!user) {
         return NextResponse.json({ success: true });
       }
       const resetToken = crypto.randomBytes(32).toString("hex");
       const expires = new Date(Date.now() + 3600000).toISOString();
-      await execute("UPDATE users SET reset_password_token = :1, reset_password_expires = :2 WHERE id = :3", [resetToken, expires, row.ID]);
+      await userRepo.update({ id: user.id }, {
+        resetPasswordToken: resetToken,
+        resetPasswordExpires: expires,
+      });
       await sendPasswordResetEmail(email, resetToken);
       return NextResponse.json({ success: true });
     }
 
     if (token && newPassword) {
-      const result = await query("SELECT id FROM users WHERE reset_password_token = :1 AND reset_password_expires > :2", [token, new Date().toISOString()]);
-      const row = result.rows?.[0];
-      if (!row) {
+      const user = await userRepo
+        .createQueryBuilder("u")
+        .where("u.resetPasswordToken = :token AND u.resetPasswordExpires > :now", {
+          token,
+          now: new Date().toISOString(),
+        })
+        .getOne();
+
+      if (!user) {
         return NextResponse.json({ error: "Invalid or expired token" }, { status: 400 });
       }
+
       const hash = await hashPassword(newPassword);
-      await execute("UPDATE users SET password_hash = :1, reset_password_token = NULL, reset_password_expires = NULL WHERE id = :2", [hash, row.ID]);
+      await userRepo.update({ id: user.id }, {
+        passwordHash: hash,
+        resetPasswordToken: null as any,
+        resetPasswordExpires: null as any,
+      });
+
       return NextResponse.json({ success: true });
     }
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import oracledb from "oracledb";
-import { query, execute, generateId, mapRows, getConnection } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { Sale } from "@/lib/entities/Sale";
+import { Plu } from "@/lib/entities/Plu";
+import { Vip } from "@/lib/entities/Vip";
 import { getAuthUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -9,30 +11,37 @@ export async function GET(req: NextRequest) {
   if (user.role === "cashier") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    const conn = await getConnection();
-    let sql = "SELECT * FROM sales";
-    const params: any[] = [];
+    const ds = await getDataSource();
+    const saleRepo = ds.getRepository(Sale);
 
-    if (user.role !== "super_admin") {
-      sql += " WHERE shop_id = :1";
-      params.push(user.shopId);
-    }
-    sql += " ORDER BY created_at DESC";
+    const where: any = {};
+    if (user.role !== "super_admin") where.shopId = user.shopId;
 
-    const result = await conn.execute(sql, params, {
-      outFormat: oracledb.OUT_FORMAT_OBJECT,
-      fetchInfo: { ITEMS_JSON: { type: oracledb.STRING } },
-    });
-    await conn.close();
+    const sales = await saleRepo.find({ where, order: { createdAt: "DESC" } });
 
-    const sales = mapRows(result.rows).map((sale: any) => {
+    const result = sales.map((sale) => {
       let items: any[] = [];
-      if (sale.items_json) {
-        try { items = JSON.parse(sale.items_json); } catch {}
+      if (sale.itemsJson) {
+        try { items = JSON.parse(sale.itemsJson); } catch {}
       }
-      return { ...sale, items, items_json: undefined };
+      return {
+        id: sale.id,
+        items,
+        subtotal: sale.subtotal,
+        tax: sale.tax,
+        discount: sale.discount,
+        total: sale.total,
+        paymentMethod: sale.paymentMethod,
+        customerId: sale.customerId,
+        customerName: sale.customerName,
+        cashierId: sale.cashierId,
+        cashierName: sale.cashierName,
+        receiptNumber: sale.receiptNumber,
+        createdAt: sale.createdAt,
+      };
     });
-    return NextResponse.json(sales);
+
+    return NextResponse.json(result);
   } catch (err) {
     console.error("Sales GET error:", err);
     return NextResponse.json({ error: "Failed to fetch sales" }, { status: 500 });
@@ -45,33 +54,52 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const id = generateId();
+    const ds = await getDataSource();
+
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
     const now = new Date().toISOString();
 
-    await execute(
-      `INSERT INTO sales (id, receipt_number, items_json, subtotal, tax, discount, total, payment_method, customer_id, customer_name, cashier_id, cashier_name, created_at, shop_id)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14)`,
-      [
-        id, body.receiptNumber, JSON.stringify(body.items), body.subtotal,
-        body.tax || 0, body.discount || 0, body.total, body.paymentMethod,
-        body.customerId || null, body.customerName || null,
-        user.userId, user.name, now, user.shopId,
-      ]
-    );
+    const saleRepo = ds.getRepository(Sale);
+    const sale = saleRepo.create({
+      id,
+      receiptNumber: body.receiptNumber,
+      itemsJson: JSON.stringify(body.items),
+      subtotal: body.subtotal,
+      tax: body.tax || 0,
+      discount: body.discount || 0,
+      total: body.total,
+      paymentMethod: body.paymentMethod,
+      customerId: body.customerId || null,
+      customerName: body.customerName || null,
+      cashierId: user.userId,
+      cashierName: user.name,
+      createdAt: now,
+      shopId: user.shopId ?? undefined,
+    });
 
+    await saleRepo.save(sale);
+
+    const pluRepo = ds.getRepository(Plu);
     for (const item of body.items || []) {
-      await execute(
-        "UPDATE plu SET stock = stock - :1 WHERE plu_code = :2 AND stock >= :3",
-        [item.quantity, item.productId, item.quantity]
-      );
+      await pluRepo
+        .createQueryBuilder()
+        .update(Plu)
+        .set({ stock: () => "stock - :qty" })
+        .where("pluCode = :id AND stock >= :qty", { id: item.productId, qty: item.quantity })
+        .setParameters({ qty: item.quantity, id: item.productId })
+        .execute();
     }
 
     if (body.customerId) {
+      const vipRepo = ds.getRepository(Vip);
       const points = Math.floor(body.total / 10);
-      await execute(
-        "UPDATE vip SET member_points = NVL(member_points, 0) + :1 WHERE vip_card = :2",
-        [points, body.customerId]
-      );
+      await vipRepo
+        .createQueryBuilder()
+        .update(Vip)
+        .set({ memberPoints: () => "NVL(member_points, 0) + :pts" })
+        .where("vipCard = :id", { id: body.customerId })
+        .setParameters({ pts: points })
+        .execute();
     }
 
     return NextResponse.json({ id }, { status: 201 });

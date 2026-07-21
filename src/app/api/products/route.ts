@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query, execute, generateId, mapRows } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { Plu } from "@/lib/entities/Plu";
+import { Department } from "@/lib/entities/Department";
 import { getAuthUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -7,23 +9,32 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    let sql = `
-      SELECT p.plu_code AS id, p.plu_name AS name, p.plu_code AS barcode,
-             p.default_price AS price, p.cost_price AS cost, p.stock,
-             d.name AS category, NULL AS description, p.modified_by, p.modified_at
-      FROM plu p
-      LEFT JOIN department d ON d."INDEX" = p.department
-    `;
-    const params: any[] = [];
+    const ds = await getDataSource();
+    const pluRepo = ds.getRepository(Plu);
+    const deptRepo = ds.getRepository(Department);
 
-    if (user.role !== "super_admin") {
-      sql += " WHERE p.shop_id = :1";
-      params.push(user.shopId);
-    }
+    const where: any = {};
+    if (user.role !== "super_admin") where.shopId = user.shopId;
 
-    sql += " ORDER BY p.plu_name";
-    const result = await query(sql, params);
-    return NextResponse.json(mapRows(result.rows || []));
+    const products = await pluRepo.find({ where, order: { pluName: "ASC" } });
+    const departments = await deptRepo.find();
+
+    const deptMap = new Map(departments.map((d) => [d.id, d.name]));
+
+    const result = products.map((p) => ({
+      id: p.pluCode,
+      name: p.pluName,
+      barcode: p.pluCode,
+      price: p.defaultPrice,
+      cost: p.costPrice || 0,
+      stock: p.stock || 0,
+      category: p.department != null ? deptMap.get(p.department) || "" : "",
+      description: null,
+      modifiedBy: p.modifiedBy,
+      modifiedAt: p.modifiedAt,
+    }));
+
+    return NextResponse.json(result);
   } catch (err) {
     console.error("Products GET error:", err);
     return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });
@@ -36,14 +47,25 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const id = body.barcode || generateId();
+    const ds = await getDataSource();
+    const pluRepo = ds.getRepository(Plu);
+
+    const id = body.barcode || Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
     const now = new Date().toISOString();
 
-    await execute(
-      `INSERT INTO plu (plu_code, plu_name, default_price, cost_price, stock, department, shop_id, modified_by, modified_at)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9)`,
-      [id, body.name, body.price, body.cost || 0, body.stock || 0, body.category || null, user.shopId, user.name, now]
-    );
+    const plu = pluRepo.create({
+      pluCode: id,
+      pluName: body.name,
+      defaultPrice: body.price,
+      costPrice: body.cost || 0,
+      stock: body.stock || 0,
+      department: body.category || null,
+      shopId: user.shopId ?? undefined,
+      modifiedBy: user.name,
+      modifiedAt: now,
+    });
+
+    await pluRepo.save(plu);
     return NextResponse.json({ id }, { status: 201 });
   } catch (err) {
     console.error("Products POST error:", err);

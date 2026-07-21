@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execute } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { User } from "@/lib/entities/User";
 import { getAuthUser, generateTwoFASecret, verifyTwoFAToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -10,22 +11,26 @@ export async function POST(req: NextRequest) {
     }
 
     const { token } = await req.json();
+    const ds = await getDataSource();
+    const userRepo = ds.getRepository(User);
 
     if (token) {
-      const result = await execute("SELECT twofa_secret FROM users WHERE id = :1", [user.userId]);
-      const row = result.rows?.[0];
-      if (!row?.TWOFA_SECRET) {
+      const row = await userRepo.findOne({ where: { id: user.userId } });
+      if (!row?.twofaSecret) {
         return NextResponse.json({ error: "2FA not set up yet" }, { status: 400 });
       }
-      if (!verifyTwoFAToken(row.TWOFA_SECRET, token)) {
+      if (!verifyTwoFAToken(row.twofaSecret, token)) {
         return NextResponse.json({ error: "Invalid verification code" }, { status: 400 });
       }
-      await execute("UPDATE users SET twofa_enabled = 1 WHERE id = :1", [user.userId]);
+      await userRepo.update({ id: user.userId }, { twofaEnabled: 1 });
       return NextResponse.json({ success: true });
     }
 
     const { secret, otpauthUrl } = generateTwoFASecret();
-    await execute("UPDATE users SET twofa_secret = :1, twofa_enabled = 0 WHERE id = :2", [secret, user.userId]);
+    await userRepo.update({ id: user.userId }, {
+      twofaSecret: secret,
+      twofaEnabled: 0,
+    });
 
     return NextResponse.json({ secret, otpauthUrl });
   } catch (error) {

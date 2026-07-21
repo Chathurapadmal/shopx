@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query, execute, mapRows } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { Department } from "@/lib/entities/Department";
 import { getAuthUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -8,16 +9,20 @@ export async function GET(req: NextRequest) {
   if (user.role === "cashier") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    let sql = `SELECT "INDEX" AS id, name FROM department`;
-    const params: any[] = [];
-    if (user.role !== "super_admin") {
-      sql += " WHERE shop_id = :1";
-      params.push(user.shopId);
-    }
-    sql += " ORDER BY name";
+    const ds = await getDataSource();
+    const deptRepo = ds.getRepository(Department);
 
-    const result = await query(sql, params);
-    return NextResponse.json(mapRows(result.rows || []));
+    const where: any = {};
+    if (user.role !== "super_admin") where.shopId = user.shopId;
+
+    const departments = await deptRepo.find({ where, order: { name: "ASC" } });
+
+    const result = departments.map((d) => ({
+      id: d.id,
+      name: d.name,
+    }));
+
+    return NextResponse.json(result);
   } catch (err) {
     console.error("Categories GET error:", err);
     return NextResponse.json({ error: "Failed to fetch categories" }, { status: 500 });
@@ -34,12 +39,27 @@ export async function POST(req: NextRequest) {
     if (!body?.name || typeof body.name !== "string") {
       return NextResponse.json({ error: "Category name is required" }, { status: 400 });
     }
-    const maxResult = await query("SELECT NVL(MAX(\"INDEX\"), 0) + 1 AS next_id FROM department");
-    const newId = (maxResult.rows?.[0] as any)?.NEXT_ID ?? 1;
-    await execute(
-      `INSERT INTO department ("INDEX", name, shop_id) VALUES (:1, :2, :3)`,
-      [newId, body.name.trim(), user.shopId]
-    );
+
+    const ds = await getDataSource();
+    const deptRepo = ds.getRepository(Department);
+
+      const maxResult = await deptRepo
+        .createQueryBuilder("d")
+        .select("NVL(MAX(d.id), 0) + 1", "next_id")
+        .getRawOne();
+
+    const newId = maxResult?.next_id ?? 1;
+
+    await deptRepo
+      .createQueryBuilder()
+      .insert()
+      .into(Department)
+      .values({
+        id: newId,
+        name: body.name.trim(),
+        shopId: user.shopId ?? undefined,
+      })
+      .execute();
     return NextResponse.json({ id: newId }, { status: 201 });
   } catch (err) {
     console.error("Categories POST error:", err);

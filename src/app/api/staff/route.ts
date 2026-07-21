@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execute, query } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { User } from "@/lib/entities/User";
 import { getAuthUser, hashPassword } from "@/lib/auth";
-import { generateId } from "@/lib/oracle";
 import { sendVerificationEmail } from "@/lib/email";
 import crypto from "crypto";
 
@@ -11,23 +11,30 @@ export async function GET(req: NextRequest) {
   if (user.role === "cashier") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
-    let sql = "SELECT id, email, name, role, shop_id, twofa_enabled, email_verified, is_active, created_at FROM users";
-    const params: any[] = [];
+    const ds = await getDataSource();
+    const userRepo = ds.getRepository(User);
 
+    const where: any = {};
     if (user.role === "shop_admin") {
-      sql += " WHERE shop_id = :1 AND role = 'cashier'";
-      params.push(user.shopId);
+      where.shopId = user.shopId;
+      where.role = "cashier";
     }
 
-    sql += " ORDER BY created_at DESC";
-    const result = await query(sql, params);
+    const users = await userRepo.find({ where, order: { createdAt: "DESC" } });
 
-    return NextResponse.json(result.rows?.map((r: any) => ({
-      id: r.ID, email: r.EMAIL, name: r.NAME, role: r.ROLE,
-      shopId: r.SHOP_ID, twofaEnabled: r.TWOFA_ENABLED === 1,
-      emailVerified: r.EMAIL_VERIFIED === 1, isActive: r.IS_ACTIVE === 1,
-      createdAt: r.CREATED_AT,
-    })) || []);
+    const result = users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      shopId: u.shopId,
+      twofaEnabled: u.twofaEnabled === 1,
+      emailVerified: u.emailVerified === 1,
+      isActive: u.isActive === 1,
+      createdAt: u.createdAt,
+    }));
+
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Staff list error:", error);
     return NextResponse.json({ error: "Failed to fetch staff" }, { status: 500 });
@@ -51,8 +58,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Shop ID required" }, { status: 400 });
     }
 
-    const existing = await query("SELECT id FROM users WHERE email = :1", [email.toLowerCase()]);
-    if (existing.rows?.[0]) {
+    const ds = await getDataSource();
+    const userRepo = ds.getRepository(User);
+
+    const existing = await userRepo.findOne({ where: { email: email.toLowerCase() } });
+    if (existing) {
       return NextResponse.json({ error: "Email already in use" }, { status: 409 });
     }
 
@@ -61,15 +71,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cannot create super admin" }, { status: 403 });
     }
 
-    const id = generateId();
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 10);
     const passwordHash = await hashPassword(password);
     const verificationToken = crypto.randomBytes(32).toString("hex");
     const now = new Date().toISOString();
 
-    await execute(
-      "INSERT INTO users (id, email, password_hash, name, role, shop_id, email_verification_token, is_active, created_at, updated_at) VALUES (:1, :2, :3, :4, :5, :6, :7, 1, :8, :8)",
-      [id, email.toLowerCase(), passwordHash, name || null, targetRole, targetShopId, verificationToken, now]
-    );
+    const newUser = userRepo.create({
+      id,
+      email: email.toLowerCase(),
+      passwordHash,
+      name: name || null,
+      role: targetRole,
+      shopId: targetShopId,
+      emailVerificationToken: verificationToken,
+      isActive: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await userRepo.save(newUser);
 
     try {
       await sendVerificationEmail(email, verificationToken);

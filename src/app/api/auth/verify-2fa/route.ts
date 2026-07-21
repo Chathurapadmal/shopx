@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/oracle";
+import { getDataSource } from "@/lib/datasource";
+import { User } from "@/lib/entities/User";
 import { signToken, verifyTwoFAToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -9,30 +10,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "userId and token required" }, { status: 400 });
     }
 
-    const result = await query("SELECT * FROM users WHERE id = :1 AND is_active = 1", [userId]);
-    const user = result.rows?.[0];
-    if (!user || !user.TWOFA_SECRET) {
+    const ds = await getDataSource();
+    const userRepo = ds.getRepository(User);
+
+    const user = await userRepo.findOne({ where: { id: userId, isActive: 1 } });
+    if (!user || !user.twofaSecret) {
       return NextResponse.json({ error: "User not found or 2FA not set up" }, { status: 401 });
     }
 
-    if (!verifyTwoFAToken(user.TWOFA_SECRET, token)) {
+    if (!verifyTwoFAToken(user.twofaSecret, token)) {
       return NextResponse.json({ error: "Invalid 2FA code" }, { status: 401 });
     }
 
     const jwtToken = signToken({
-      userId: user.ID,
-      email: user.EMAIL,
-      role: user.ROLE,
-      shopId: user.SHOP_ID,
-      name: user.NAME || user.EMAIL,
+      userId: user.id,
+      email: user.email,
+      role: user.role as "super_admin" | "shop_admin" | "cashier",
+      shopId: user.shopId || null,
+      name: user.name || user.email,
     });
 
     const userData = {
-      id: user.ID,
-      email: user.EMAIL,
-      name: user.NAME,
-      role: user.ROLE,
-      shopId: user.SHOP_ID,
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      shopId: user.shopId,
     };
 
     return NextResponse.json({ token, user: userData });
